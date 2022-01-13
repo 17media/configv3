@@ -1,4 +1,4 @@
-package configv2
+package configv3
 
 /* lister.go implements lister struct that lists all file names under specified path. */
 import (
