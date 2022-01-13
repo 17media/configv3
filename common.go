@@ -1,4 +1,4 @@
-package configv2
+package configv3
 
 // ModifiedFile contains a file and its modify operation
 type ModifiedFile struct {

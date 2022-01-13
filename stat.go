@@ -1,4 +1,4 @@
-package configv2
+package configv3
 
 const (
 	// PkgName is for creating module counter

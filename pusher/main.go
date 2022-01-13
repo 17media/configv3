@@ -19,7 +19,7 @@ import (
 
 	log "github.com/17media/logrus"
 	"github.com/BurntSushi/cmd"
-	"github.com/ericfan17/configv2"
+	"github.com/ericfan17/configv3"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 )
@@ -89,8 +89,8 @@ func cdRepo(path string) {
 
 // filterRelatedFiles takes a commit file log and return a slice of
 // ModifiedFile
-func filterRelatedFiles(configRoot, repoRoot string, fstr string) *[]configv2.ModifiedFile {
-	ret := []configv2.ModifiedFile{}
+func filterRelatedFiles(configRoot, repoRoot string, fstr string) *[]configv3.ModifiedFile {
+	ret := []configv3.ModifiedFile{}
 
 	sz := len(configRoot)
 	for _, line := range strings.Split(fstr, "\n") {
@@ -122,7 +122,7 @@ func filterRelatedFiles(configRoot, repoRoot string, fstr string) *[]configv2.Mo
 			log.Fatalf("unable to find relative path from repo root %v to %v, err %v",
 				gitRootToRepoRoot, tokens[1], err)
 		}
-		ret = append(ret, configv2.ModifiedFile{
+		ret = append(ret, configv3.ModifiedFile{
 			Op:   tokens[0],
 			Path: pathToRoot,
 		})
@@ -198,7 +198,7 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 	// theres no need to check config root dir on etcd v3
 
 	// default etcdLastCommit is current repo newest commit
-	prevCFG := &configv2.ConfigInfo{}
+	prevCFG := &configv3.ConfigInfo{}
 	etcdLastCommit := []byte(runSingleCmdOrFatal("git rev-list --max-parents=0 HEAD"))
 	etcdHasCommit := false
 	log.Infof("reading last pushed information for %s", infoPath)
@@ -296,11 +296,11 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 		log.Fatalf("error when traversing %s: %s\n", root, err)
 	}
 
-	configInfo := configv2.ConfigInfo{
+	configInfo := configv3.ConfigInfo{
 		Repo:    repo,
 		Branch:  branch,
 		Version: commitHash,
-		Commit: configv2.CommitInfo{
+		Commit: configv3.CommitInfo{
 			TimeStamp:      timestamp,
 			CommitterEmail: email,
 			Subject:        subject,

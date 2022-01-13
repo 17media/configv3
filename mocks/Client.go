@@ -3,7 +3,7 @@
 package mocks
 
 import (
-	configv2 "github.com/ericfan17/configv2"
+	configv3 "github.com/ericfan17/configv3"
 	mock "github.com/stretchr/testify/mock"
 
 	regexp "regexp"
@@ -15,15 +15,15 @@ type Client struct {
 }
 
 // AddListener provides a mock function with given fields: pathRegEx
-func (_m *Client) AddListener(pathRegEx *regexp.Regexp) *chan configv2.ModifiedFile {
+func (_m *Client) AddListener(pathRegEx *regexp.Regexp) *chan configv3.ModifiedFile {
 	ret := _m.Called(pathRegEx)
 
-	var r0 *chan configv2.ModifiedFile
-	if rf, ok := ret.Get(0).(func(*regexp.Regexp) *chan configv2.ModifiedFile); ok {
+	var r0 *chan configv3.ModifiedFile
+	if rf, ok := ret.Get(0).(func(*regexp.Regexp) *chan configv3.ModifiedFile); ok {
 		r0 = rf(pathRegEx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*chan configv2.ModifiedFile)
+			r0 = ret.Get(0).(*chan configv3.ModifiedFile)
 		}
 	}
 
@@ -31,14 +31,14 @@ func (_m *Client) AddListener(pathRegEx *regexp.Regexp) *chan configv2.ModifiedF
 }
 
 // ConfigInfo provides a mock function with given fields:
-func (_m *Client) ConfigInfo() configv2.ConfigInfo {
+func (_m *Client) ConfigInfo() configv3.ConfigInfo {
 	ret := _m.Called()
 
-	var r0 configv2.ConfigInfo
-	if rf, ok := ret.Get(0).(func() configv2.ConfigInfo); ok {
+	var r0 configv3.ConfigInfo
+	if rf, ok := ret.Get(0).(func() configv3.ConfigInfo); ok {
 		r0 = rf()
 	} else {
-		r0 = ret.Get(0).(configv2.ConfigInfo)
+		r0 = ret.Get(0).(configv3.ConfigInfo)
 	}
 
 	return r0
@@ -91,7 +91,7 @@ func (_m *Client) List(path string) (map[string][]byte, error) {
 }
 
 // RemoveListener provides a mock function with given fields: ch
-func (_m *Client) RemoveListener(ch *chan configv2.ModifiedFile) {
+func (_m *Client) RemoveListener(ch *chan configv3.ModifiedFile) {
 	_m.Called(ch)
 }
 
