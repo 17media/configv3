@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/17media/configv3"
 	log "github.com/17media/logrus"
 	"github.com/BurntSushi/cmd"
-	"github.com/ericfan17/configv3"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 )

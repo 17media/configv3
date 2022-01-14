@@ -3,7 +3,7 @@
 package mocks
 
 import (
-	configv3 "github.com/ericfan17/configv3"
+	configv3 "github.com/17media/configv3"
 	mock "github.com/stretchr/testify/mock"
 
 	regexp "regexp"
