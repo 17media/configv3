@@ -407,6 +407,8 @@ func main() {
 		DialTimeout: 5 * time.Second,
 		// see https://github.com/etcd-io/etcd/issues/9877, solves New won't return error for invalid endpoints
 		DialOptions: []grpc.DialOption{grpc.WithBlock()},
+		// work around for https://17media.slack.com/archives/CPQ5VS71C/p1646619180068099, there is a file larger than 6.31 MB
+		MaxCallSendMsgSize: 8 * 1024 * 1024,
 	})
 	if err != nil {
 		log.Fatalf("error connecting to etcd machines, %s", *machines)
