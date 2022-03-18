@@ -414,6 +414,7 @@ func main() {
 		log.Fatalf("error connecting to etcd machines, %s", *machines)
 	}
 	fmt.Printf("connected to etcd machines %s\n", ensembleStr)
+	fmt.Printf("MaxCallSendMsgSize for etcd client set to  %d\n", 8*1024*1024)
 
 	root := strings.TrimRight(strings.Trim(*rootpath, " \t"), "/")
 	if root == "" {
