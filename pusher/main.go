@@ -27,6 +27,8 @@ import (
 const (
 	gitMinVersion = 1.9
 	infoPrefix    = "%s/._info"
+	// for etcd client
+	etcdMaxCallSendMsgSize = 8 * 1024 * 1024
 )
 
 var (
@@ -138,7 +140,7 @@ type fileInfo struct {
 
 // Pusher push the localRepo to etcd.
 func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
-	fmt.Printf("Push config from local dir <%s> to etcd dir <%s>\n", root, etcdRoot)
+	fmt.Printf("Push config from local dir <%s> to etcd dir <%s> for v3\n", root, etcdRoot)
 
 	checkGitVersion()
 
@@ -408,12 +410,13 @@ func main() {
 		// see https://github.com/etcd-io/etcd/issues/9877, solves New won't return error for invalid endpoints
 		DialOptions: []grpc.DialOption{grpc.WithBlock()},
 		// work around for https://17media.slack.com/archives/CPQ5VS71C/p1646619180068099, there is a file larger than 6.31 MB
-		MaxCallSendMsgSize: 8 * 1024 * 1024,
+		MaxCallSendMsgSize: etcdMaxCallSendMsgSize,
 	})
 	if err != nil {
 		log.Fatalf("error connecting to etcd machines, %s", *machines)
 	}
 	fmt.Printf("connected to etcd machines %s\n", ensembleStr)
+	fmt.Printf("MaxCallSendMsgSize for etcd client set to  %d\n", etcdMaxCallSendMsgSize)
 
 	root := strings.TrimRight(strings.Trim(*rootpath, " \t"), "/")
 	if root == "" {
