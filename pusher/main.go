@@ -138,7 +138,7 @@ type fileInfo struct {
 
 // Pusher push the localRepo to etcd.
 func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
-	fmt.Printf("Push config from local dir <%s> to etcd dir <%s>\n", root, etcdRoot)
+	fmt.Printf("Push config from local dir <%s> to etcd dir <%s> for v3\n", root, etcdRoot)
 
 	checkGitVersion()
 
