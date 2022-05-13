@@ -3,6 +3,7 @@ module github.com/17media/configv3
 go 1.17
 
 require (
+	github.com/17media/go-etcd v2.0.0+incompatible
 	github.com/17media/logrus v1.0.6-0.20200519050833-c3843d4d9a57
 	github.com/BurntSushi/cmd v0.0.0-20121122232022-d54777ad4400
 	github.com/facebookgo/stats v0.0.0-20151006221625-1b76add642e4

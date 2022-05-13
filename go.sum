@@ -1,5 +1,7 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
+github.com/17media/go-etcd v2.0.0+incompatible h1:Azx998tn03j9YKhdIn3hN3elJ/9JEpe/GwbNCpK4uFs=
+github.com/17media/go-etcd v2.0.0+incompatible/go.mod h1:nIZWesMZedxGyKRA/wKs0MhH0f093kka7pgMFJHObH0=
 github.com/17media/logrus v1.0.6-0.20200519050833-c3843d4d9a57 h1:JL//U7pkh+50QLPzWAQljUE0QYmC4ec4/kElGbOxa1M=
 github.com/17media/logrus v1.0.6-0.20200519050833-c3843d4d9a57/go.mod h1:i+WztySEo6XHzBPLo67OwPM0lgjYRrff34XUcuhjSVQ=
 github.com/BurntSushi/cmd v0.0.0-20121122232022-d54777ad4400 h1:NxWU+vqPG/W/n+AVQMaV4T2o/YaONlIw8YKaXRUM7PQ=
