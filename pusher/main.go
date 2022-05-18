@@ -258,9 +258,9 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 
 	// for symlink files, see https://17media.atlassian.net/wiki/spaces/ST/pages/708838756/Use+Feature+flag+and+ABtest+from+GoApi+in+Discovery#Current-solution
 	// if  root/a/b/symlink.yaml -> root/a/b/dest.yaml
-	// and root/a/b/symlink2.yaml -> root/a/b/dest.yaml
-	// root/a/b/dest.yaml is in modFiles (from git diff-tree),
-	// then we need to add root/a/b/symlink2.yaml, root/a/b/symlink.yaml to modFiles
+	// and root/a/b/symlink2.yaml -> root2/a/b/dest2.yaml
+	// a/b/dest.yaml, ../root2/a/b/dest2.yaml is in modFiles (from git diff-tree),
+	// then we need to add a/b/symlink.yaml, a/b/symlink.yaml to modFiles
 	extraModFiles := []configv3.ModifiedFile{}
 
 	// FIXME: only walk when no prev commit
