@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path"
@@ -255,6 +256,13 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 	// the root out from the beginning
 	sz := len(root)
 
+	// for symlink files, see https://17media.atlassian.net/wiki/spaces/ST/pages/708838756/Use+Feature+flag+and+ABtest+from+GoApi+in+Discovery#Current-solution
+	// if  root/a/b/symlink.yaml -> root/a/b/dest.yaml
+	// and root/a/b/symlink2.yaml -> root/a/b/dest.yaml
+	// root/a/b/dest.yaml is in modFiles (from git diff-tree),
+	// then we need to add root/a/b/symlink2.yaml, root/a/b/symlink.yaml to modFiles
+	extraModFiles := []configv3.ModifiedFile{}
+
 	// FIXME: only walk when no prev commit
 	walkFunc := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -289,12 +297,33 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 		// remove root path
 		path = path[sz:]
 		content[path] = fileInfo{isDir: info.IsDir(), content: bs}
+
+		if info.Mode()&fs.ModeSymlink == 1 {
+			if dest, err := filepath.EvalSymlinks(path); err == nil {
+				fmt.Printf("destination %s found, add symbolic link %s to modFiles\n", dest, path)
+				// TODO: we expect about 10 modFiles each commit batch, if thats not the case use map instead
+				for _, modFile := range *modFiles {
+					// if the commit deleteds a linked dest file, it will error out when calling ReadFile on symlink
+					if modFile.Path == dest && (modFile.Op != "d") {
+						extraModFiles = append(extraModFiles,
+							configv3.ModifiedFile{
+								Op:   modFile.Op,
+								Path: path,
+							},
+						)
+					}
+				}
+				// TODO: handle the case that symlink has mulitple layer or dest is folder
+			}
+		}
 		return nil
 	}
 
 	if err = filepath.Walk(root, walkFunc); err != nil {
 		log.Fatalf("error when traversing %s: %s\n", root, err)
 	}
+
+	*modFiles = append(*modFiles, extraModFiles...)
 
 	configInfo := configv3.ConfigInfo{
 		Repo:    repo,
