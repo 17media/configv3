@@ -21,6 +21,7 @@ import (
 	log "github.com/17media/logrus"
 	"github.com/BurntSushi/cmd"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 	"google.golang.org/grpc"
 )
 
@@ -351,7 +352,11 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 		if !content[k].isDir {
 			_, err = etcdConn.Put(ctx, fileP, string(content[k].content))
 		}
-		if err != nil {
+		// if the key is too large we ignore the error
+		// https://etcd.io/docs/v3.3/upgrades/upgrade_3_2/#changed-maximum-request-size-limits-3210
+		if err == rpctypes.ErrRequestTooLarge || strings.HasPrefix(err.Error(), "rpc error: code = ResourceExhausted desc = grpc: trying to send message larger than max") {
+			fmt.Printf("file %s\n is too large, error: %s", fileP, err.Error())
+		} else if err != nil {
 			log.Fatalf("error when setting znode >%s(%s + %s)<. Config server will be inconsistent: %s",
 				fileP, remoteRoot, k, err)
 		}
