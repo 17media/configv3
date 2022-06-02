@@ -357,7 +357,7 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 		if err == rpctypes.ErrRequestTooLarge || strings.HasPrefix(err.Error(), "rpc error: code = ResourceExhausted desc = grpc: trying to send message larger than max") {
 			fmt.Printf("file %s\n is too large, error: %s", fileP, err.Error())
 		} else if err != nil {
-			log.Fatalf("error when setting znode >%s(%s + %s)<. Config server will be inconsistent: %s",
+			log.Fatalf("error when putting >%s(%s + %s)<. Config server will be inconsistent: %s",
 				fileP, remoteRoot, k, err)
 		}
 	}
