@@ -359,7 +359,7 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 		// error msg in the document is slightly off, so we define it here.
 		// ErrRequestTooLarge comes from go.etcd.io/etcd v3.3.27+incompatible, but we are only using string so it should be find
 		if err != nil && (strings.HasPrefix(err.Error(), clientTooLargeErr) || err.Error() == rpctypes.ErrRequestTooLarge.Error()) {
-			fmt.Printf("file %s\n is too large, error: %s\n", fileP, err.Error())
+			log.Printf("file %s\n is too large, error: %s\n", fileP, err.Error())
 		} else if err != nil {
 			log.Fatalf("error when putting >%s(%s + %s)<. Config server will be inconsistent: %s",
 				fileP, remoteRoot, k, err)
