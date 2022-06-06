@@ -7,6 +7,7 @@ require (
 	github.com/BurntSushi/cmd v0.0.0-20121122232022-d54777ad4400
 	github.com/facebookgo/stats v0.0.0-20151006221625-1b76add642e4
 	github.com/stretchr/testify v1.7.0
+	go.etcd.io/etcd v3.3.27+incompatible
 	go.etcd.io/etcd/client/v3 v3.5.1
 	google.golang.org/grpc v1.38.0
 )

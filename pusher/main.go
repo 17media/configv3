@@ -21,12 +21,15 @@ import (
 	log "github.com/17media/logrus"
 	"github.com/BurntSushi/cmd"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 	"google.golang.org/grpc"
 )
 
 const (
 	gitMinVersion = 1.9
 	infoPrefix    = "%s/._info"
+
+	clientTooLargeErr = "rpc error: code = ResourceExhausted desc = trying to send message larger than max"
 )
 
 var (
@@ -351,8 +354,14 @@ func Pusher(etcdConn *clientv3.Client, root, etcdRoot string) {
 		if !content[k].isDir {
 			_, err = etcdConn.Put(ctx, fileP, string(content[k].content))
 		}
-		if err != nil {
-			log.Fatalf("error when setting znode >%s(%s + %s)<. Config server will be inconsistent: %s",
+		// if the key is too large we ignore the error
+		// https://etcd.io/docs/v3.3/upgrades/upgrade_3_2/#changed-maximum-request-size-limits-3210
+		// error msg in the document is slightly off, so we define it here.
+		// ErrRequestTooLarge comes from go.etcd.io/etcd v3.3.27+incompatible, but we are only using string so it should be find
+		if err != nil && (strings.HasPrefix(err.Error(), clientTooLargeErr) || err.Error() == rpctypes.ErrRequestTooLarge.Error()) {
+			log.Printf("file %s\n is too large, error: %s\n", fileP, err.Error())
+		} else if err != nil {
+			log.Fatalf("error when putting >%s(%s + %s)<. Config server will be inconsistent: %s",
 				fileP, remoteRoot, k, err)
 		}
 	}
@@ -407,8 +416,6 @@ func main() {
 		DialTimeout: 5 * time.Second,
 		// see https://github.com/etcd-io/etcd/issues/9877, solves New won't return error for invalid endpoints
 		DialOptions: []grpc.DialOption{grpc.WithBlock()},
-		// work around for https://17media.slack.com/archives/CPQ5VS71C/p1646619180068099, there is a file larger than 6.31 MB
-		MaxCallSendMsgSize: 8 * 1024 * 1024,
 	})
 	if err != nil {
 		log.Fatalf("error connecting to etcd machines, %s", *machines)
