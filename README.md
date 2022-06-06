@@ -6,10 +6,12 @@ and update etcdclient to v3
 
 deprecates 17media/go-etcd
 
-note that we ignore errors that files are too large to push (limitation for server side: 1.5 MiB, client side: 4 MiB), because they are not etcd meant to maintain
+note that we ignore errors that files are too large to push (limitation for server side: 1.5 MiB, client side: 2 MiB), because they are not etcd meant to maintain
 
 see
-https://etcd.io/docs/v3.3/upgrades/upgrade_3_2/#changed-maximum-request-size-limits-3210 .
+https://etcd.io/docs/v3.3/upgrades/upgrade_3_2/#changed-maximum-request-size-limits-3210 (old change log),
+
+https://github.com/etcd-io/etcd/blob/08407ff7600eb16c4445d5f21c4fafaf19412e24/client/v3/config.go#L46
 
 
 # TODO
