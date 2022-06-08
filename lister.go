@@ -1,23 +1,19 @@
 package configv3
 
-/* lister.go implements lister struct that lists all file names under specified path. */
 import (
 	"container/list"
-	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 
-	clientv3 "go.etcd.io/etcd/client/v3"
-
 	"github.com/17media/logrus"
 )
 
 // lister implemnts config library's List() function.
 type lister struct {
-	client *clientImpl
+	client Client
 	// path is the path to be listed.
 	path string
 	// tree stores all files under path and is updated automatically by listening to zk.
@@ -27,8 +23,7 @@ type lister struct {
 }
 
 // etcd usage is not as expected now
-func newLister(client *clientImpl, path string) (*lister, error) {
-	ctx := context.TODO()
+func newLister(client Client, path string, lsFunc func(path string) ([]string, error)) (*lister, error) {
 	if client == nil {
 		return nil, fmt.Errorf("empty config client")
 	}
@@ -37,7 +32,7 @@ func newLister(client *clientImpl, path string) (*lister, error) {
 	}
 
 	//create a filepath instance of storer
-	logrus.Infof("new storer filepath with root %v, path %v", client.root, path)
+	logrus.Infof("new storer filepath with root %v, path %v", client.GetRoot(), path)
 	ls := &lister{
 		client: client,
 		path:   strings.Trim(path, "/"),
@@ -53,26 +48,9 @@ func newLister(client *clientImpl, path string) (*lister, error) {
 	logrus.Infof("listening on %v, path %v, escaped path %v", regex, path, escPath)
 	ch := ls.client.AddListener(regex)
 
-	// build the tree first
-	lsFunc := func(path string) ([]string, error) {
-		resp, err := client.etcdConn.Get(ctx, client.root, clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
-		if err != nil {
-			return nil, err
-		}
-		c := []string{}
-		for _, n := range resp.Kvs {
-			if string(n.Key) != filepath.Base(infoPrefix) {
-				// NOTE: in etcd, children are absolute path, so change path to relative path
-				if f, e := filepath.Rel(path, string(n.Key)); e == nil {
-					c = append(c, f)
-				}
-			}
-		}
-		return c, nil
-	}
-	ls.tree, err = buildTree(client.root, path, lsFunc)
+	ls.tree, err = buildTree(client.GetRoot(), path, lsFunc)
 	if err != nil {
-		return nil, fmt.Errorf("can't build tree. root %v path %v err %v", client.root, path, err)
+		return nil, fmt.Errorf("can't build tree. root %v path %v err %v", client.GetRoot(), path, err)
 	}
 	go func() {
 		for mod := range *ch {
@@ -104,7 +82,7 @@ func (l *lister) List() map[string][]byte {
 	for k := range l.tree {
 		v, err := l.client.Get(k)
 		if err != nil {
-			l.client.ctr.BumpSum(cListGetFail, 1)
+			l.client.BumpSum(cListGetFail, 1)
 			logrus.Warningf("Skip path %v because can't get the content. Err %v", k, err)
 			continue
 		}

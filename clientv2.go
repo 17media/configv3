@@ -1,25 +1,25 @@
 package configv3
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
-	clientv3 "go.etcd.io/etcd/client/v3"
-
+	"github.com/17media/go-etcd/etcd"
 	"github.com/17media/logrus"
 	"github.com/facebookgo/stats"
 )
 
-// V3Stat sets counter client
-func V3Stat(counter stats.Client) func(*ClientV3Impl) error {
+// V2Stat sets counter client
+func V2Stat(counter stats.Client) func(*ClientV2Impl) error {
 
-	return func(c *ClientV3Impl) error {
+	return func(c *ClientV2Impl) error {
 		if counter == nil {
 			return errors.New("nil counter is not allowed")
 		}
@@ -28,21 +28,20 @@ func V3Stat(counter stats.Client) func(*ClientV3Impl) error {
 	}
 }
 
-// V3NoMatchingLogs skip matching logs
-func V3NoMatchingLogs() func(*ClientV3Impl) error {
-	return func(c *ClientV3Impl) error {
+// V2NoMatchingLogs skip matching logs
+func V2NoMatchingLogs() func(*ClientV2Impl) error {
+	return func(c *ClientV2Impl) error {
 		c.noMatchingLogs = true
 		return nil
 	}
 }
 
-// NewClientV3 return a new Client with option funtions.
+// NewClientV2 return a new Client with option funtions.
 // conn: a etcd client,
 // root: the root path that contains the config tree
-func NewClientV3(conn *clientv3.Client, root string, options ...func(*ClientV3Impl) error) (*ClientV3Impl, error) {
-	client := &ClientV3Impl{
+func NewClientV2(conn *etcd.Client, root string, options ...func(*ClientV2Impl) error) (*ClientV2Impl, error) {
+	client := &ClientV2Impl{
 		etcdConn:  conn,
-		watcher:   clientv3.NewWatcher(conn),
 		root:      root,
 		listeners: []*regexChan{},
 		cache:     make(map[string][]byte),
@@ -62,12 +61,17 @@ func NewClientV3(conn *clientv3.Client, root string, options ...func(*ClientV3Im
 	return client, err
 }
 
-// ClientV3Impl implements the Client interface
-type ClientV3Impl struct {
+// watchRetryTime defines the retry number of watch
+var watchRetryTime = flag.Uint("csi_config_client_etcd_retry", uint(5), "etcd watch failed retry times, 0 for unlimited retry")
+
+// fatalFn is used to test for watch
+var fatalfFn = logrus.Fatalf
+
+// ClientV2Impl implements the Client interface
+type ClientV2Impl struct {
 	infoLock     sync.Mutex
 	info         ConfigInfo
-	etcdConn     *clientv3.Client
-	watcher      clientv3.Watcher
+	etcdConn     *etcd.Client
 	root         string
 	listenerLock sync.Mutex
 	listeners    []*regexChan
@@ -78,97 +82,128 @@ type ClientV3Impl struct {
 	listers map[string]*lister
 	// listerLock protects listers
 	listerLock     sync.Mutex
+	stopCh         chan bool
 	noMatchingLogs bool
 }
 
 // init start monitoring the config file
-func (c *ClientV3Impl) init() error {
-	ctx := context.TODO()
-	// no need to check if root dir exists for v3
-
+func (c *ClientV2Impl) init() error {
+	c.stopCh = make(chan bool)
+	// check if root exists
+	_, err := c.etcdConn.Get(c.root, true, false)
+	if err != nil {
+		logrus.Errorf("etcd root<%s> doesn't exist, err: %s", c.root, err)
+		return err
+	}
 	// start loop monitor
 	infoPath := fmt.Sprintf(infoPrefix, c.root)
 	logrus.Infof("start to monitor %s", infoPath)
-	return c.watchRootInfo(ctx, infoPath)
+	initErr := make(chan error)
+	go c.loop(infoPath, initErr)
+	return <-initErr
 }
 
-// watchRootInfo starts to listen on configure info stored in storer, and
+// loop starts to listen on configure info stored in storer, and
 // starts dispatching to listeners
-func (c *ClientV3Impl) watchRootInfo(ctx context.Context, infoPath string) error {
-	// TODO: determin if we need revision from get first
-	c.ctr.BumpSum("config.watch.event", 1)
-	getResp, err := c.etcdConn.Get(ctx, infoPath)
+func (c *ClientV2Impl) loop(infoPath string, initErr chan error) {
+	// loop to listen to event
+	retry := uint(0)
+	resp := &etcd.Response{}
+	firstTime, ok := true, false
+
+	// get watch for config
+	recv, err := c.getWatch(infoPath, c.stopCh)
 	if err != nil {
-		logrus.Errorf("etcd client Get failed for infoPath<%s>, err: %s", infoPath, err)
-		return err
-	} else if getResp.Count == 0 {
-		logrus.Errorf("etcd infoPath<%s> doesn't exist", infoPath)
-		return fmt.Errorf("etcd infoPath<%s> doesn't exist", infoPath)
-	} else if getResp.Count > 1 {
-		// should not happen because we are not using options to get more than one key
-		logrus.Errorf("etcd client Get more than 1 key for infoPath<%s>", infoPath)
-		return fmt.Errorf("etcd client Get more than 1 key for infoPath<%s>", infoPath)
+		// the infor doesn't exist, but root is ok. so jump to listen change directly
+		logrus.Infof("etcd root<%s> is clear, please push config first", c.root)
+		initErr <- err
+		return
 	}
 
-	_, err = c.configMarshal(getResp.Kvs[0].Value)
-	if err != nil {
-		logrus.Infof("get etcd root config is wrong, err: %s", err)
-		return err
-	}
-
-	// watch info path
-	logrus.Infof("starting watching %s", infoPath)
-	watchRespChan := c.etcdConn.Watch(ctx, infoPath)
-
-	go func() {
-		for watchResp := range watchRespChan {
-			if len(watchResp.Events) != 1 {
-				logrus.Infof("watch response events length not 1")
-				continue
-			}
-			fmt.Println(watchResp)
-			// unmarshal the config
-			info, err := c.configMarshal(watchResp.Events[0].Kv.Value)
-			if err != nil {
-				logrus.Infof("watch etcd root config is wrong, err: %s", err)
-				continue
-			}
-			// empty cache
-			for _, f := range info.ModFiles {
-				if _, ok := c.cache[f.Path]; !ok {
-					continue
+	for {
+		select {
+		case resp, ok = <-recv:
+			if !ok {
+				// watch error, retry
+				retry++
+				if *watchRetryTime > 0 && retry > *watchRetryTime {
+					fatalfFn("retry watch failed over %v times", *watchRetryTime)
 				}
-				logrus.Infof("delete %v from cache", f.Path)
-				c.cacheLock.Lock()
-				delete(c.cache, f.Path)
-				c.cacheLock.Unlock()
+				logrus.Errorf("watch etcd root<%s> failed, retry: %v", infoPath, retry)
+				time.Sleep(time.Second)
+				recv, _ = c.getWatch(infoPath, c.stopCh)
+				continue
 			}
+			// watch successfully, set retry to 0
+			retry = uint(0)
+		case <-c.stopCh:
+			// client stop
+			logrus.Infof("config client receive stop signal")
+			return
+		}
 
-			// send file change event to listeners
-			logrus.Infof("fire file change event on info: %v", info)
-			c.fireFileChangeEvent(&info)
+		// unmarshal the config
+		info, err := c.configMarshal(resp.Node.Value)
+
+		// check if the config info is right for initializing
+		if firstTime {
+			if err != nil {
+				// first time and config info is wrong
+				initErr <- fmt.Errorf("etcd root config is wrong, err: %s", err)
+				return
+			}
+			initErr <- nil
+			firstTime = false
+		}
+
+		// empty cache
+		for _, f := range info.ModFiles {
+			if _, ok := c.cache[f.Path]; !ok {
+				continue
+			}
+			logrus.Infof("delete %v from cache", f.Path)
+			c.cacheLock.Lock()
+			delete(c.cache, f.Path)
+			c.cacheLock.Unlock()
+		}
+
+		// send file change event to listeners
+		logrus.Infof("fire file change event on info: %v", info)
+		c.fireFileChangeEvent(&info)
+	}
+}
+
+func (c *ClientV2Impl) getWatch(path string, stop chan bool) (chan *etcd.Response, error) {
+	resp := make(chan *etcd.Response, 1)
+	// get path
+	r, err := c.etcdConn.Get(path, true, false)
+	if err != nil {
+		logrus.Errorf("etcd get %s failed, err: %s", path, err)
+		close(resp)
+		return resp, err
+	}
+	resp <- r
+	// watch path
+	go func() {
+		c.ctr.BumpSum("config.watch.event", 1)
+		logrus.Infof("starting watching %s for version %v", path, r.EtcdIndex+1)
+		_, e := c.etcdConn.Watch(path, r.EtcdIndex+1, false, resp, stop)
+		if e != nil && e != etcd.ErrWatchStoppedByUser {
+			c.ctr.BumpSum("config.watch.err", 1)
+			logrus.Infof("watch error:%s", e)
 		}
 	}()
-	return nil
-}
-func (c *ClientV3Impl) closeWatcher() error {
-	// when close watcher it sometimes returns context.Caneled and that is ok
-	if err := c.watcher.Close(); err != nil && err != context.Canceled {
-		logrus.Infof("watcher.Close failed, err: %s", err)
-		return err
-	}
-
-	return nil
+	return resp, nil
 }
 
 // configMarshal returns ConfigInfo
-func (c *ClientV3Impl) configMarshal(b []byte) (ConfigInfo, error) {
+func (c *ClientV2Impl) configMarshal(s string) (ConfigInfo, error) {
 	info := ConfigInfo{}
-	err := json.Unmarshal(b, &info)
+	err := json.Unmarshal([]byte(s), &info)
 	if err != nil {
 		// the content of node has problem
 		c.ctr.BumpSum(cRootDataErr, 1)
-		logrus.Errorf("can't unmarshal data: %v, error: %v", b, err)
+		logrus.Errorf("can't unmarshal data: %v, error: %v", s, err)
 		return info, err
 	}
 	return info, nil
@@ -176,8 +211,7 @@ func (c *ClientV3Impl) configMarshal(b []byte) (ConfigInfo, error) {
 
 // ConfigInfo returns the ConfigInfo protobuf struct that
 // contains infomation w.r.t to repo and last commit
-// NOTE: only set after watch event
-func (c *ClientV3Impl) ConfigInfo() ConfigInfo {
+func (c *ClientV2Impl) ConfigInfo() ConfigInfo {
 	c.infoLock.Lock()
 	defer c.infoLock.Unlock()
 	return c.info
@@ -185,11 +219,10 @@ func (c *ClientV3Impl) ConfigInfo() ConfigInfo {
 
 // Get request the content of file at path. If the path doesn't
 // exists then ok returns false
-func (c *ClientV3Impl) Get(path string) ([]byte, error) {
+func (c *ClientV2Impl) Get(path string) ([]byte, error) {
 	defer c.ctr.BumpTime(cGetProcTime).End()
 	c.cacheLock.Lock()
 	defer c.cacheLock.Unlock()
-	ctx := context.TODO()
 	// check cache
 	if bytes, ok := c.cache[path]; ok {
 		// cache hit
@@ -197,21 +230,17 @@ func (c *ClientV3Impl) Get(path string) ([]byte, error) {
 	}
 
 	c.ctr.BumpSum(cCacheMiss, 1)
-	resp, err := c.etcdConn.Get(ctx, filepath.Join(c.root, path))
+	r, err := c.etcdConn.Get(filepath.Join(c.root, path), true, false)
 	if err != nil {
 		// get from etcd error
 		return nil, err
 	}
-	if len(resp.Kvs) != 1 {
-		return nil, fmt.Errorf("response kvs not 1")
-	}
-	c.cache[path] = []byte(resp.Kvs[0].Value)
+	c.cache[path] = []byte(r.Node.Value)
 	return c.cache[path], nil
 }
 
 // List list the path tree under give path
-// TODO: this is legacy method not used in goapi config service, need to check implementation
-func (c *ClientV3Impl) List(path string) (map[string][]byte, error) {
+func (c *ClientV2Impl) List(path string) (map[string][]byte, error) {
 	path = strings.Trim(path, "/")
 	logrus.Infof("List trimmed path %s", path)
 	c.listerLock.Lock()
@@ -220,7 +249,7 @@ func (c *ClientV3Impl) List(path string) (map[string][]byte, error) {
 	if l, ok := c.listers[path]; ok {
 		return l.List(), nil
 	}
-	// otherwise, make a new listerV2 and return.
+	// otherwise, make a new lister and return.
 	l, err := newLister(c, path, c.lsFunc)
 	if err != nil {
 		return nil, err
@@ -230,20 +259,21 @@ func (c *ClientV3Impl) List(path string) (map[string][]byte, error) {
 }
 
 // lsFunc use to create lister
-func (c *ClientV3Impl) lsFunc(path string) ([]string, error) {
-	resp, err := c.etcdConn.Get(context.Background(), c.root, clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
+func (c *ClientV2Impl) lsFunc(path string) ([]string, error) {
+	resp, err := c.etcdConn.Get(path, true, false)
 	if err != nil {
 		return nil, err
 	}
 	s := []string{}
-	for _, n := range resp.Kvs {
-		if string(n.Key) != filepath.Base(infoPrefix) {
+	for _, n := range resp.Node.Nodes {
+		if n.Key != filepath.Base(infoPrefix) {
 			// NOTE: in etcd, children are absolute path, so change path to relative path
-			if f, e := filepath.Rel(path, string(n.Key)); e == nil {
+			if f, e := filepath.Rel(path, n.Key); e == nil {
 				s = append(s, f)
 			}
 		}
 	}
+	logrus.Info(s)
 	return s, nil
 }
 
@@ -252,7 +282,7 @@ func (c *ClientV3Impl) lsFunc(path string) ([]string, error) {
 // through the channel
 // the listener only allow to lieten on the files that under root
 // directory
-func (c *ClientV3Impl) AddListener(pathRegEx *regexp.Regexp) *chan ModifiedFile {
+func (c *ClientV2Impl) AddListener(pathRegEx *regexp.Regexp) *chan ModifiedFile {
 	c.listenerLock.Lock()
 	defer c.listenerLock.Unlock()
 
@@ -261,7 +291,7 @@ func (c *ClientV3Impl) AddListener(pathRegEx *regexp.Regexp) *chan ModifiedFile 
 	return &cn
 }
 
-func (c *ClientV3Impl) Watch(
+func (c *ClientV2Impl) Watch(
 	path string,
 	callback func([]byte) error,
 	errChan chan<- error,
@@ -297,7 +327,7 @@ func (c *ClientV3Impl) Watch(
 // RemoveListener remove a listener channel. RemoveListener will not call
 // close on ch. However, after RemoveListener call, ch will no longer receive
 // events
-func (c *ClientV3Impl) RemoveListener(ch *chan ModifiedFile) {
+func (c *ClientV2Impl) RemoveListener(ch *chan ModifiedFile) {
 	c.listenerLock.Lock()
 	defer c.listenerLock.Unlock()
 
@@ -310,14 +340,13 @@ func (c *ClientV3Impl) RemoveListener(ch *chan ModifiedFile) {
 }
 
 // Stop is to stop client
-func (c *ClientV3Impl) Stop() error {
-	c.closeWatcher()
-	// return error is not needed, just to align previous design
+func (c *ClientV2Impl) Stop() error {
+	close(c.stopCh)
 	return nil
 }
 
 // fireFileChangeEvent is called whenever ConfigInfo.Files changes
-func (c *ClientV3Impl) fireFileChangeEvent(info *ConfigInfo) {
+func (c *ClientV2Impl) fireFileChangeEvent(info *ConfigInfo) {
 	c.infoLock.Lock()
 	c.info = *info
 	c.infoLock.Unlock()
@@ -342,11 +371,11 @@ func (c *ClientV3Impl) fireFileChangeEvent(info *ConfigInfo) {
 }
 
 // BumpSum is to stat bumpSum
-func (c *ClientV3Impl) BumpSum(key string, val float64) {
+func (c *ClientV2Impl) BumpSum(key string, val float64) {
 	c.ctr.BumpSum(key, val)
 }
 
 // GetRoot is to get root path
-func (c *ClientV3Impl) GetRoot() string {
+func (c *ClientV2Impl) GetRoot() string {
 	return c.root
 }
